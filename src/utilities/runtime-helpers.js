@@ -30,15 +30,8 @@ function useHandleStreamResponse({
 }
 
 function useUpload() {
-  function isBase64(str) {
-    try {
-      return btoa(atob(str)) === str;
-    } catch (error) {
-      return false;
-    }
-  }
   const [loading, setLoading] = React.useState(false);
-  const upload = async (input) => {
+  const upload = React.useCallback(async (input) => {
     try {
       setLoading(true);
       let response;
@@ -58,9 +51,6 @@ function useUpload() {
           body: JSON.stringify({ url: input.url })
         });
       } else if ("base64" in input) {
-        if (!isBase64(input.base64)) {
-          return { error: "Provided base64 is invalid" };
-        }
         response = await fetch(`${window.location.origin}/api/upload`, {
           method: "POST",
           headers: {
@@ -78,6 +68,9 @@ function useUpload() {
         });
       }
       if (!response.ok) {
+        if (response.status === 413) {
+          throw new Error("Upload failed: File too large.");
+        }
         throw new Error("Upload failed");
       }
       const data = await response.json();
@@ -93,11 +86,12 @@ function useUpload() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
   return [upload, { loading }];
 }
 
 export {
   useHandleStreamResponse,
-  rawUseUpload,
+  useUpload,
 }
