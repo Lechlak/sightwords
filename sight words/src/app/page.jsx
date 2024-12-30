@@ -1,17 +1,13 @@
 "use client";
 import React from "react";
-import { config } from '@fortawesome/fontawesome-svg-core';
-import '@fortawesome/fontawesome-svg-core/styles.css';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowDown, faVolumeUp, faTimes } from '@fortawesome/free-solid-svg-icons';
 
 function MainComponent() {
+  const [theme, setTheme] = React.useState("masculine");
   const [selectedGrades, setSelectedGrades] = React.useState([]);
   const [correctAnswers, setCorrectAnswers] = React.useState({});
   const [incorrectAnswers, setIncorrectAnswers] = React.useState({});
   const [currentWord, setCurrentWord] = React.useState(null);
   const [showCelebration, setShowCelebration] = React.useState(false);
-  const [celebrationImage, setCelebrationImage] = React.useState("");
   const [touchStart, setTouchStart] = React.useState(null);
   const [wordStatus, setWordStatus] = React.useState({});
   const [showWorkingList, setShowWorkingList] = React.useState(false);
@@ -21,7 +17,16 @@ function MainComponent() {
   const [customWords, setCustomWords] = React.useState([]);
   const [showCustomWordsModal, setShowCustomWordsModal] = React.useState(false);
   const [customWordsText, setCustomWordsText] = React.useState("");
-  const [showProgressModal, setShowProgressModal] = React.useState(false);
+  const [streak, setStreak] = React.useState(() => {
+    const saved = localStorage.getItem("streak");
+    return saved ? parseInt(saved) : 0;
+  });
+  const [totalCorrect, setTotalCorrect] = React.useState(() => {
+    const saved = localStorage.getItem("totalCorrect");
+    return saved ? parseInt(saved) : 0;
+  });
+  const [showWarning, setShowWarning] = React.useState(false);
+
   const words = {
     K: [
       "a",
@@ -252,12 +257,14 @@ function MainComponent() {
       "warm",
     ],
   };
+
   const getAllWords = () => {
     if (customWords.length > 0) {
       return customWords;
     }
     return selectedGrades.reduce((acc, grade) => [...acc, ...words[grade]], []);
   };
+
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -273,6 +280,7 @@ function MainComponent() {
       reader.readAsText(file);
     }
   };
+
   const handleUseCustomWords = () => {
     const words = customWordsText
       .split(",")
@@ -281,8 +289,10 @@ function MainComponent() {
     setCustomWords(words);
     setShowCustomWordsModal(false);
     setUsedWords(new Set());
+    resetProgress();
     setCurrentWord(words[Math.floor(Math.random() * words.length)]);
   };
+
   const getRandomWord = () => {
     const allWords = getAllWords().filter((word) => !usedWords.has(word));
     if (allWords.length === 0) return null;
@@ -295,9 +305,15 @@ function MainComponent() {
     setUsedWords(new Set());
   }, [selectedGrades]);
 
+  React.useEffect(() => {
+    localStorage.setItem("streak", streak.toString());
+    localStorage.setItem("totalCorrect", totalCorrect.toString());
+  }, [streak, totalCorrect]);
+
   const handleTouchStart = (e) => {
     setTouchStart(e.touches[0].clientX);
   };
+
   const handleTouchEnd = (e) => {
     if (!touchStart) return;
 
@@ -305,8 +321,13 @@ function MainComponent() {
     const diff = touchStart - touchEnd;
 
     if (Math.abs(diff) > 50) {
-      const newCorrectAnswers = correctAnswers + 1;
-      setCorrectAnswers(newCorrectAnswers);
+      if (selectedGrades.length === 0 && customWords.length === 0) {
+        setShowWarning(true);
+        setTimeout(() => setShowWarning(false), 3000);
+        return;
+      }
+      setStreak((s) => s + 1);
+      setTotalCorrect((t) => t + 1);
       setWordStatus((prev) => ({ ...prev, [currentWord]: true }));
       setUsedWords((prev) => new Set([...prev, currentWord]));
       updateProgress();
@@ -320,7 +341,14 @@ function MainComponent() {
 
     setTouchStart(null);
   };
+
   const handleNext = () => {
+    if (selectedGrades.length === 0 && customWords.length === 0) {
+      setShowWarning(true);
+      setTimeout(() => setShowWarning(false), 3000);
+      return;
+    }
+
     const grade = Object.entries(words).find(([g, list]) =>
       list.includes(currentWord)
     )?.[0];
@@ -332,6 +360,8 @@ function MainComponent() {
       }));
     }
 
+    setStreak((s) => s + 1);
+    setTotalCorrect((t) => t + 1);
     setWordStatus((prev) => ({ ...prev, [currentWord]: true }));
     setUsedWords((prev) => new Set([...prev, currentWord]));
 
@@ -344,7 +374,14 @@ function MainComponent() {
       setCurrentWord(newWord);
     }
   };
+
   const handleIncorrect = () => {
+    if (selectedGrades.length === 0 && customWords.length === 0) {
+      setShowWarning(true);
+      setTimeout(() => setShowWarning(false), 3000);
+      return;
+    }
+
     const grade = Object.entries(words).find(([g, list]) =>
       list.includes(currentWord)
     )?.[0];
@@ -356,10 +393,9 @@ function MainComponent() {
       }));
     }
 
+    setStreak(0);
     setWordStatus((prev) => ({ ...prev, [currentWord]: false }));
     setUsedWords((prev) => new Set([...prev, currentWord]));
-
-    updateProgress();
 
     const newWord = getRandomWord();
     if (!newWord) {
@@ -368,6 +404,18 @@ function MainComponent() {
       setCurrentWord(newWord);
     }
   };
+
+  const handleSpeak = () => {
+    if (currentWord) {
+      fetch(`/integrations/text-to-speech/speech?text=${currentWord}`)
+        .then((response) => response.blob())
+        .then((blob) => {
+          const audio = new Audio(URL.createObjectURL(blob));
+          audio.play();
+        });
+    }
+  };
+
   const updateProgress = () => {
     setProgress((prev) => {
       const newProgress = prev + 1;
@@ -379,6 +427,16 @@ function MainComponent() {
       return newProgress;
     });
   };
+
+  const resetProgress = () => {
+    setCorrectAnswers({});
+    setIncorrectAnswers({});
+    setWordStatus({});
+    setUsedWords(new Set());
+    setCurrentWord(getRandomWord());
+    setProgress(0);
+  };
+
   const handleEmailList = () => {
     const incorrectWordsByGrade = Object.keys(words).reduce((acc, grade) => {
       const gradeWords = words[grade].filter(
@@ -399,43 +457,91 @@ function MainComponent() {
       subject
     )}&body=${encodeURIComponent(emailBody)}`;
   };
-  const totalWords = getAllWords().length;
-  const gradeProgress = selectedGrades.reduce((acc, grade) => {
-    const total = words[grade].length;
-    const correct = correctAnswers[grade] || 0;
-    const incorrect = incorrectAnswers[grade] || 0;
-    acc[grade] = {
-      total,
-      progress: total > 0 ? ((correct + incorrect) / total) * 100 : 0,
-    };
-    return acc;
-  }, {});
-  const handleSpeak = () => {
-    if (currentWord) {
-      fetch(`/integrations/text-to-speech/speech?text=${currentWord}`)
-        .then((response) => response.blob())
-        .then((blob) => {
-          const audio = new Audio(URL.createObjectURL(blob));
-          audio.play();
-        });
-    }
-  };
-  const resetProgress = () => {
-    setCorrectAnswers({});
-    setIncorrectAnswers({});
-    setWordStatus({});
-    setUsedWords(new Set());
-    setCurrentWord(getRandomWord());
-    setProgress(0);
-  };
 
   return (
-    <div className="min-h-screen bg-[#F2EDEB] p-8 font-montserrat">
-      <div className="max-w-2xl mx-auto">
-        <h1 className="text-xl font-bold text-[#925E78] mb-8">Sight Words Practice</h1>
+    <div
+      className="min-h-screen p-8 font-montserrat"
+      style={{
+        background:
+          theme === "masculine"
+            ? "#D6E1E8"
+            : theme === "feminine"
+            ? "#FFF0F5"
+            : "#FFFFFF",
+      }}
+    >
+      <div className="max-w-2xl mx-auto relative">
+        <div className="absolute right-0 top-0 flex gap-2">
+          <button
+            onClick={() => setTheme("masculine")}
+            className="border-2 text-2xl p-1 rounded-lg hover:opacity-80 transition-opacity"
+            style={{
+              borderColor: theme === "masculine" ? "#2B4C7E" : "transparent",
+            }}
+          >
+            🥏
+          </button>
+          <button
+            onClick={() => setTheme("feminine")}
+            className="border-2 text-2xl p-1 rounded-lg hover:opacity-80 transition-opacity"
+            style={{
+              borderColor: theme === "feminine" ? "#FF6B98" : "transparent",
+            }}
+          >
+            🌸
+          </button>
+          <button
+            onClick={() => setTheme("highContrast")}
+            className="border-2 text-2xl p-1 rounded-lg hover:opacity-80 transition-opacity"
+            style={{
+              borderColor: theme === "highContrast" ? "#000000" : "transparent",
+            }}
+          >
+            ⚡
+          </button>
+        </div>
+        <h1
+          className="text-xl font-bold mb-8"
+          style={{
+            color:
+              theme === "masculine"
+                ? "#1D1D1D"
+                : theme === "feminine"
+                ? "#2D2D2D"
+                : "#000000",
+          }}
+        >
+          Sight Words
+        </h1>
         {showEndOptions ? (
-          <div className="bg-[#F2EDEB] rounded-lg p-8 text-center">
-            <h2 className="text-[#925E78] text-4xl font-semibold mb-8">
+          <div
+            className="rounded-lg p-8 text-center"
+            style={{
+              background:
+                theme === "masculine"
+                  ? "#FFFFFF"
+                  : theme === "feminine"
+                  ? "#FFFFFF"
+                  : "#FFFFFF",
+              color:
+                theme === "masculine"
+                  ? "#1D1D1D"
+                  : theme === "feminine"
+                  ? "#2D2D2D"
+                  : "#000000",
+            }}
+          >
+            <h2
+              className="text-4xl font-semibold mb-8"
+              style={{
+                color:
+                  theme === "masculine"
+                    ? "#2B4C7E"
+                    : theme === "feminine"
+                    ? "#FF6B98"
+                    : "#000000",
+              }}
+            >
               Great job!
             </h2>
             <div className="flex flex-col gap-4">
@@ -454,13 +560,30 @@ function MainComponent() {
                   resetProgress();
                   setShowEndOptions(false);
                 }}
-                className="px-6 py-3 bg-[#F05365] text-white rounded-lg hover:bg-[#925E78] transition-colors mx-auto"
+                className="px-6 py-3 rounded-lg text-white transition-colors mx-auto"
+                style={{
+                  background:
+                    theme === "masculine"
+                      ? "#2B4C7E"
+                      : theme === "feminine"
+                      ? "#FF6B98"
+                      : "#000000",
+                }}
               >
                 Play Again
               </button>
               <button
                 onClick={handleEmailList}
-                className="px-6 py-3 bg-[#925E78] text-white rounded-lg hover:bg-[#DD5C35] transition-colors mx-auto"
+                className="px-6 py-3 rounded-lg transition-colors mx-auto"
+                style={{
+                  background:
+                    theme === "masculine"
+                      ? "#1D1D1D"
+                      : theme === "feminine"
+                      ? "#2D2D2D"
+                      : "#000000",
+                  color: "white",
+                }}
               >
                 Email Word List
               </button>
@@ -471,8 +594,18 @@ function MainComponent() {
             <div className="flex flex-col md:flex-row justify-between items-center mb-8">
               <div className="flex gap-2 mb-4 md:mb-0">
                 {selectedGrades.length === 0 && customWords.length === 0 && (
-                  <div className="absolute top-16 animate-bounce text-[#F05365]">
-                    <FontAwesomeIcon icon={faArrowDown} />  &nbsp; Pick
+                  <div
+                    className="absolute top-8 animate-bounce"
+                    style={{
+                      color:
+                        theme === "masculine"
+                          ? "#2B4C7E"
+                          : theme === "feminine"
+                          ? "#FF6B98"
+                          : "#000000",
+                    }}
+                  >
+                    <i className="fas fa-arrow-down text-2xl"> </i> &nbsp; Pick
                     a grade level
                   </div>
                 )}
@@ -488,15 +621,46 @@ function MainComponent() {
                           setSelectedGrades([...selectedGrades, grade]);
                         }
                       }}
-                      className={`w-12 h-12 rounded-full ${
-                        selectedGrades.includes(grade)
-                          ? "bg-[#F05365] text-white"
-                          : "bg-white text-[#F05365] border-2 border-[#F05365]"
-                      } flex items-center justify-center text-lg font-medium transition-colors`}
+                      className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-medium transition-colors"
+                      style={{
+                        background: selectedGrades.includes(grade)
+                          ? theme === "masculine"
+                            ? "#2B4C7E"
+                            : theme === "feminine"
+                            ? "#FF6B98"
+                            : "#000000"
+                          : "transparent",
+                        color: selectedGrades.includes(grade)
+                          ? "white"
+                          : theme === "masculine"
+                          ? "#2B4C7E"
+                          : theme === "feminine"
+                          ? "#FF6B98"
+                          : "#000000",
+                        border: selectedGrades.includes(grade)
+                          ? "none"
+                          : `2px solid ${
+                              theme === "masculine"
+                                ? "#2B4C7E"
+                                : theme === "feminine"
+                                ? "#FF6B98"
+                                : "#000000"
+                            }`,
+                      }}
                     >
                       {grade}
                     </button>
-                    <div className="text-sm text-[#474141] mt-1">
+                    <div
+                      className="text-sm mt-1"
+                      style={{
+                        color:
+                          theme === "masculine"
+                            ? "#1D1D1D"
+                            : theme === "feminine"
+                            ? "#2D2D2D"
+                            : "#000000",
+                      }}
+                    >
                       {(correctAnswers[grade] || 0) +
                         (incorrectAnswers[grade] || 0)}
                       /{words[grade].length}
@@ -504,26 +668,39 @@ function MainComponent() {
                   </div>
                 ))}
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowCustomWordsModal(true)}
-                  className="px-4 py-2 bg-[#F05365] text-white rounded-lg hover:bg-[#925E78] transition-colors"
-                >
-                  Custom Words
-                </button>
-                <button
-                  onClick={() => {
-                    setCustomWords([]);
-                    setCustomWordsText("");
-                  }}
-                  className="px-4 py-2 bg-[#BD93BD] text-white rounded-lg hover:bg-[#925E78] transition-colors"
-                >
-                  Clear
-                </button>
-              </div>
+              <button
+                onClick={() => setShowCustomWordsModal(true)}
+                className="px-4 py-2 rounded-lg text-white transition-colors"
+                style={{
+                  background:
+                    theme === "masculine"
+                      ? "#2B4C7E"
+                      : theme === "feminine"
+                      ? "#FF6B98"
+                      : "#000000",
+                }}
+              >
+                Custom Words
+              </button>
             </div>
 
-            <div className="bg-[#F2EDEB] rounded-lg p-8 text-center">
+            <div
+              className="rounded-lg p-8 text-center"
+              style={{
+                background:
+                  theme === "masculine"
+                    ? "#FFFFFF"
+                    : theme === "feminine"
+                    ? "#FFFFFF"
+                    : "#FFFFFF",
+                color:
+                  theme === "masculine"
+                    ? "#1D1D1D"
+                    : theme === "feminine"
+                    ? "#2D2D2D"
+                    : "#000000",
+              }}
+            >
               {customWords.length > 0 && (
                 <div className="mb-4 text-lg">
                   Progress: {usedWords.size}/{customWords.length} words
@@ -531,7 +708,23 @@ function MainComponent() {
               )}
               {showCustomWordsModal && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                  <div className="bg-white rounded-lg p-6 max-w-lg w-full">
+                  <div
+                    className="rounded-lg p-6 max-w-lg w-full"
+                    style={{
+                      background:
+                        theme === "masculine"
+                          ? "#D6E1E8"
+                          : theme === "feminine"
+                          ? "#FFF0F5"
+                          : "#FFFFFF",
+                      color:
+                        theme === "masculine"
+                          ? "#1D1D1D"
+                          : theme === "feminine"
+                          ? "#2D2D2D"
+                          : "#000000",
+                    }}
+                  >
                     <h3 className="text-xl font-medium mb-4">Custom Words</h3>
                     <div className="mb-4">
                       <label className="block text-sm font-medium mb-2">
@@ -557,14 +750,56 @@ function MainComponent() {
                     </div>
                     <div className="flex justify-end gap-2">
                       <button
+                        onClick={() => {
+                          setCustomWords([]);
+                          setCustomWordsText("");
+                          setShowCustomWordsModal(false);
+                        }}
+                        className="px-4 py-2 rounded-lg transition-colors"
+                        style={{
+                          background:
+                            theme === "masculine"
+                              ? "#1D1D1D"
+                              : theme === "feminine"
+                              ? "#2D2D2D"
+                              : "#000000",
+                          color: "white",
+                        }}
+                      >
+                        Clear
+                      </button>
+                      <button
                         onClick={() => setShowCustomWordsModal(false)}
-                        className="px-4 py-2 text-[#F05365] hover:bg-gray-100 rounded-lg transition-colors"
+                        className="px-4 py-2 rounded-lg transition-colors"
+                        style={{
+                          border: `2px solid ${
+                            theme === "masculine"
+                              ? "#2B4C7E"
+                              : theme === "feminine"
+                              ? "#FF6B98"
+                              : "#FFD700"
+                          }`,
+                          color:
+                            theme === "masculine"
+                              ? "#2B4C7E"
+                              : theme === "feminine"
+                              ? "#FF6B98"
+                              : "#FFD700",
+                        }}
                       >
                         Cancel
                       </button>
                       <button
                         onClick={handleUseCustomWords}
-                        className="px-4 py-2 bg-[#F05365] text-white rounded-lg hover:bg-[#925E78] transition-colors"
+                        className="px-4 py-2 rounded-lg text-white transition-colors"
+                        style={{
+                          background:
+                            theme === "masculine"
+                              ? "#2B4C7E"
+                              : theme === "feminine"
+                              ? "#FF6B98"
+                              : "#FFD700",
+                        }}
                       >
                         Use Custom Words
                       </button>
@@ -574,16 +809,35 @@ function MainComponent() {
               )}
 
               {showCelebration && (
-                <div className="fixed top-0 left-0 w-full h-full flex items-center justify-center z-50">
-                  <img
-                    src={
-                      Math.random() < 0.5
-                        ? "https://ucarecdn.com/0e034408-9499-4fca-9829-b174bed007d6/"
-                        : "https://ucarecdn.com/a07e3d98-e347-462d-b8f3-6b7515a271fc/"
-                    }
-                    alt="Celebration animation"
-                    className="max-w-md"
-                  />
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                  <div className="relative w-full h-full">
+                    {Array.from({ length: 50 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="absolute"
+                        style={{
+                          left: `${Math.random() * 100}%`,
+                          top: `-20px`,
+                          width: "10px",
+                          height: "10px",
+                          background: ["#FFD700", "#FF6B98", "#2B4C7E"][
+                            Math.floor(Math.random() * 3)
+                          ],
+                          animation: `confetti 1s ease-out ${
+                            Math.random() * 3
+                          }s forwards`,
+                        }}
+                      />
+                    ))}
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
+                      <div className="text-4xl font-bold text-white mb-4">
+                        {streak} in a row! 🎯
+                      </div>
+                      <div className="text-2xl text-white">
+                        Total correct: {totalCorrect}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -592,41 +846,85 @@ function MainComponent() {
                   className="text-6xl select-none"
                   onTouchStart={handleTouchStart}
                   onTouchEnd={handleTouchEnd}
+                  style={{
+                    color:
+                      theme === "masculine"
+                        ? "#1D1D1D"
+                        : theme === "feminine"
+                        ? "#2D2D2D"
+                        : "#000000",
+                  }}
                 >
                   {currentWord}
                 </div>
                 <button
                   onClick={handleSpeak}
-                  className="text-4xl text-[#925E78] hover:text-[#BD93BD] transition-colors"
+                  className="text-4xl transition-colors"
+                  style={{
+                    color:
+                      theme === "masculine"
+                        ? "#2B4C7E"
+                        : theme === "feminine"
+                        ? "#FF6B98"
+                        : "#FFD700",
+                  }}
                 >
-                  <FontAwesomeIcon icon={faVolumeUp} /> 
+                  <i className="fas fa-volume-up"></i>
                 </button>
               </div>
               <div className="flex justify-center gap-8 mb-8">
                 <button
                   onClick={handleNext}
-                  className="text-7xl text-green-500 hover:text-green-600 transition-colors"
+                  className="text-7xl transition-colors"
+                  style={{
+                    color:
+                      theme === "masculine"
+                        ? "#2B4C7E"
+                        : theme === "feminine"
+                        ? "#FF6B98"
+                        : "#FFD700",
+                  }}
                 >
                   ✓
                 </button>
                 <button
                   onClick={handleIncorrect}
-                  className="text-7xl text-red-500 hover:text-red-600 transition-colors"
+                  className="text-7xl transition-colors"
+                  style={{
+                    color:
+                      theme === "masculine"
+                        ? "#1D1D1D"
+                        : theme === "feminine"
+                        ? "#2D2D2D"
+                        : "#000000",
+                  }}
                 >
                   ✗
                 </button>
               </div>
-              <></>
-              <div className="flex justify-center mb-4">
-                {Array.from({ length: 5 }, (_, i) => (
-                  <span key={i} className="text-4xl">
-                    {i < progress ? "🎉" : "⚪"}
-                  </span>
-                ))}
+              <div className="flex flex-col items-center gap-2 mb-4">
+                <div className="flex justify-center">
+                  {Array.from({ length: 5 }, (_, i) => (
+                    <span key={i} className="text-4xl">
+                      {i < progress ? "🎉" : "⚪"}
+                    </span>
+                  ))}
+                </div>
+                <div className="text-lg">
+                  Current streak: {streak} • Total correct: {totalCorrect}
+                </div>
               </div>
               <button
                 onClick={() => setShowWorkingList(true)}
-                className="px-6 py-3 bg-[#F05365] text-white rounded-lg hover:bg-[#925E78] transition-colors mx-auto"
+                className="px-6 py-3 rounded-lg text-white transition-colors mx-auto"
+                style={{
+                  background:
+                    theme === "masculine"
+                      ? "#2B4C7E"
+                      : theme === "feminine"
+                      ? "#FF6B98"
+                      : "#000",
+                }}
               >
                 View Progress
               </button>
@@ -635,16 +933,36 @@ function MainComponent() {
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                   <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[80vh] overflow-y-auto">
                     <div className="flex justify-between items-center mb-6">
-                      <h3 className="text-2xl font-medium text-[#925e78]">Progress Report</h3>
+                      <h3
+                        className="text-2xl font-medium"
+                        style={{
+                          color:
+                            theme === "masculine"
+                              ? "#2B4C7E"
+                              : theme === "feminine"
+                              ? "#FF6B98"
+                              : "#000",
+                        }}
+                      >
+                        Progress Report
+                      </h3>
                       <button
                         onClick={() => setShowWorkingList(false)}
-                        className="text-gray-500 hover:text-gray-700"
+                        className="text-xl transition-colors"
+                        style={{
+                          color:
+                            theme === "masculine"
+                              ? "#1D1D1D"
+                              : theme === "feminine"
+                              ? "#2D2D2D"
+                              : "#000000",
+                        }}
                       >
-                         <FontAwesomeIcon icon={faTimes} /> 
+                        <i className="fas fa-times"></i>
                       </button>
                     </div>
                     <div>
-                      <div className="space-y-6 flex-col">
+                      <div className="space-y-6">
                         {Object.entries(words).map(([grade, gradeWords]) => {
                           const gradeIncorrectWords = gradeWords.filter(
                             (word) => wordStatus[word] === false
@@ -660,13 +978,22 @@ function MainComponent() {
                             return (
                               <div
                                 key={grade}
-                                className="bg-[#EFE9E7] rounded-lg p-4 text-[#925e78]"
+                                className="rounded-lg p-4"
+                                style={{
+                                  background:
+                                    theme === "masculine"
+                                      ? "#fff"
+                                      : theme === "feminine"
+                                      ? "#fff"
+                                      : "#fff",
+                                  color: "black",
+                                }}
                               >
-                                <h3 className="text-xl font-semibold mb-4 flex">
+                                <h3 className="text-xl font-semibold mb-4">
                                   Grade {grade}
                                 </h3>
                                 {gradeCorrectWords.length > 0 && (
-                                  <div className="mb-4 bg-[#F7F4F3] rounded-lg p-5">
+                                  <div className="mb-4">
                                     <h4 className="font-semibold mb-2">
                                       Correct Words:
                                     </h4>
@@ -684,7 +1011,7 @@ function MainComponent() {
                                   </div>
                                 )}
                                 {gradeIncorrectWords.length > 0 && (
-                                  <div className="bg-[#F7F4F3] rounded-lg p-5">
+                                  <div>
                                     <h4 className="font-semibold mb-2">
                                       Incorrect Words:
                                     </h4>
@@ -707,14 +1034,20 @@ function MainComponent() {
                           return null;
                         })}
                       </div>
-                      <div className="mt-4">
-                        <></>
-                      </div>
+                      <div className="mt-4"></div>
                     </div>
                     <div className="flex justify-center mt-6">
                       <button
                         onClick={handleEmailList}
-                        className="px-6 py-3 bg-[#BD93BD] text-white rounded-lg hover:bg-[#925E78] transition-colors"
+                        className="px-6 py-3 rounded-lg text-white transition-colors"
+                        style={{
+                          background:
+                            theme === "masculine"
+                              ? "#2B4C7E"
+                              : theme === "feminine"
+                              ? "#FF6B98"
+                              : "#000",
+                        }}
                       >
                         Email List
                       </button>
@@ -726,6 +1059,17 @@ function MainComponent() {
           </>
         )}
       </div>
+      {showWarning && (
+        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-6 py-3 rounded-lg">
+          Please select a grade level or add custom words first
+        </div>
+      )}
+      <style jsx global>{`
+        @keyframes confetti {
+          0% { transform: translateY(0) rotate(0); opacity: 1; }
+          100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        }
+      `}</style>
     </div>
   );
 }
